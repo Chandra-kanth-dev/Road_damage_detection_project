@@ -1,7 +1,8 @@
 streamlit
-tensorflow==2.15
+tensorflow==2.15.1
 numpy
 pandas
 matplotlib
 opencv-python-headless
 Pillow
+gdown
