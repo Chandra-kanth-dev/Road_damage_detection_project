@@ -1,22 +1,17 @@
 # ============================================
 # AI-BASED ROAD DAMAGE DETECTION SYSTEM
 # Python 3.10 | TensorFlow 2.15.0 | Streamlit
+# Fix: keras==2.15.0 version mismatch resolved
 # ============================================
 
 import os
 import warnings
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"       # Suppress TF C++ logs
-warnings.filterwarnings("ignore")               # Suppress Python warnings
+os.environ["TF_USE_LEGACY_KERAS"]  = "1"        # Force tf.keras (Keras 2) on TF 2.15
+warnings.filterwarnings("ignore")
 
 import streamlit as st
-import numpy as np
-import cv2
-import gdown
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-
-from PIL import Image
 
 # ============================================
 # PAGE CONFIG  (must be first Streamlit call)
@@ -30,12 +25,18 @@ st.set_page_config(
 )
 
 # ============================================
-# LAZY-IMPORT TENSORFLOW
-# Avoids slow cold-start before UI renders
+# TENSORFLOW — imported AFTER page config
+# Using tf.keras explicitly to avoid
+# standalone Keras 3.x conflict on cloud
 # ============================================
 
 import tensorflow as tf
-from tensorflow.keras.models import load_model   # type: ignore
+import numpy as np
+import cv2
+import gdown
+import matplotlib.pyplot as plt
+
+from PIL import Image
 
 # ============================================
 # CUSTOM CSS
@@ -115,12 +116,12 @@ html, body, [class*="css"] {
 # CONSTANTS
 # ============================================
 
-MODEL_FILE  = "road_damage_model.h5"
-FILE_ID     = "1-7VNyfOvCdA8pru2m4sO9LDXe3AuXGpu"
-IMG_SIZE    = (128, 128)
-CLASSES     = ["Crack", "Manhole", "Pothole"]
+MODEL_FILE = "road_damage_model.h5"
+FILE_ID    = "1-7VNyfOvCdA8pru2m4sO9LDXe3AuXGpu"
+IMG_SIZE   = (128, 128)
+CLASSES    = ["Crack", "Manhole", "Pothole"]
 
-SEVERITY_THRESHOLDS = {"High": 85, "Medium": 60}  # confidence %
+SEVERITY_THRESHOLDS = {"High": 85, "Medium": 60}
 
 CLASS_COLORS = {
     "Crack":   "#FF6B6B",
@@ -133,7 +134,7 @@ CLASS_COLORS = {
 # ============================================
 
 def download_model() -> bool:
-    """Downloads model from Google Drive if not present. Returns success bool."""
+    """Downloads model from Google Drive if not present."""
     if os.path.exists(MODEL_FILE):
         return True
     with st.spinner("⬇️  Downloading CNN model (first run only)..."):
@@ -146,20 +147,38 @@ def download_model() -> bool:
             return False
 
 # ============================================
-# MODEL LOAD  (cached across sessions)
+# MODEL LOAD
+# KEY FIX: use tf.keras.models.load_model
+# NOT the standalone keras load_model
+# This guarantees Keras 2 (tf.keras) is used
+# regardless of what keras package is installed
 # ============================================
 
 @st.cache_resource(show_spinner="Loading CNN model…")
-def load_cnn_model() -> tf.keras.Model:
-    """Loads .h5 model with compile=False for inference-only use."""
-    return load_model(MODEL_FILE, compile=False)
+def load_cnn_model():
+    try:
+        # Explicitly use tf.keras — avoids standalone Keras 3 conflict
+        model = tf.keras.models.load_model(MODEL_FILE, compile=False)
+        return model
+    except TypeError as te:
+        st.error("❌ Model config error (likely Keras version mismatch).")
+        st.code(str(te))
+        st.info(
+            "Fix: Re-save your model locally with the same TF version:\n"
+            "  model.save('road_damage_model.h5')\n"
+            "Then re-upload to Google Drive and update FILE_ID."
+        )
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Failed to load model: {e}")
+        st.stop()
 
 # ============================================
 # PREPROCESSING
 # ============================================
 
 def preprocess_image(pil_image: Image.Image) -> np.ndarray:
-    """Converts PIL image → normalised (1, H, W, 3) float32 array."""
+    """PIL Image → normalised (1, 128, 128, 3) float32 array."""
     img = np.array(pil_image.convert("RGB"))
     img = cv2.resize(img, IMG_SIZE, interpolation=cv2.INTER_AREA)
     img = img.astype("float32") / 255.0
@@ -177,11 +196,11 @@ def get_severity(confidence: float) -> str:
     return "Low"
 
 # ============================================
-# CHART
+# CONFIDENCE CHART
 # ============================================
 
 def render_confidence_chart(probabilities: np.ndarray) -> plt.Figure:
-    """Renders a styled horizontal bar chart of class probabilities."""
+    """Styled horizontal bar chart for class probabilities."""
     fig, ax = plt.subplots(figsize=(7, 3))
     fig.patch.set_facecolor("#0F1923")
     ax.set_facecolor("#0F1923")
@@ -189,11 +208,12 @@ def render_confidence_chart(probabilities: np.ndarray) -> plt.Figure:
     colors = [CLASS_COLORS.get(c, "#00FFB2") for c in CLASSES]
     bars = ax.barh(CLASSES, probabilities, color=colors, height=0.45, zorder=2)
 
-    # Value labels
     for bar, val in zip(bars, probabilities):
         ax.text(
-            bar.get_width() + 0.8, bar.get_y() + bar.get_height() / 2,
-            f"{val:.1f}%", va="center", ha="left",
+            bar.get_width() + 0.8,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.1f}%",
+            va="center", ha="left",
             color="#E8EDF2", fontsize=10, fontweight="bold"
         )
 
@@ -211,7 +231,10 @@ def render_confidence_chart(probabilities: np.ndarray) -> plt.Figure:
 # ============================================
 
 st.markdown("<div class='title'>🛣️ Road Damage Detection</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>AI-Powered Infrastructure Monitoring · CNN · Smart City</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='subtitle'>AI-Powered Infrastructure Monitoring · CNN · Smart City</div>",
+    unsafe_allow_html=True
+)
 st.divider()
 
 # ============================================
@@ -230,7 +253,7 @@ with st.expander("📘 About this System", expanded=False):
 st.divider()
 
 # ============================================
-# ENSURE MODEL IS READY
+# BOOTSTRAP: download → load model
 # ============================================
 
 if not download_model():
@@ -239,7 +262,7 @@ if not download_model():
 model = load_cnn_model()
 
 # ============================================
-# UPLOAD
+# IMAGE UPLOAD
 # ============================================
 
 st.markdown("### 📤 Upload Road Image")
@@ -259,7 +282,7 @@ if uploaded_file is not None:
 
     col1, col2 = st.columns([1, 1], gap="large")
 
-    # --- Left: Preview ---
+    # --- Left: Image Preview ---
     with col1:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown("**🖼️ Uploaded Image**")
@@ -267,12 +290,12 @@ if uploaded_file is not None:
         st.caption(f"Size: {image.size[0]}×{image.size[1]} px  |  Mode: {image.mode}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- Right: Results ---
+    # --- Right: Prediction ---
     with col2:
         img_array = preprocess_image(image)
 
         with st.spinner("🔍 Analysing road condition…"):
-            prediction   = model.predict(img_array, verbose=0)
+            prediction = model.predict(img_array, verbose=0)
 
         class_index     = int(np.argmax(prediction))
         predicted_class = CLASSES[class_index]
@@ -283,7 +306,6 @@ if uploaded_file is not None:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown("**📊 Prediction Result**")
 
-        # Metrics row
         m1, m2, m3 = st.columns(3)
         with m1:
             st.markdown("<div class='metric-label'>Damage Type</div>", unsafe_allow_html=True)
@@ -297,10 +319,7 @@ if uploaded_file is not None:
             st.markdown(f"<div class='{badge_cls}'>{severity}</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # Confidence bar
         st.progress(int(confidence), text=f"Model confidence: {confidence:.1f}%")
-
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
@@ -311,7 +330,7 @@ if uploaded_file is not None:
     st.markdown("### 📈 Class Confidence Breakdown")
     fig = render_confidence_chart(probabilities)
     st.pyplot(fig)
-    plt.close(fig)   # Free memory
+    plt.close(fig)
 
     st.divider()
 
@@ -323,31 +342,33 @@ if uploaded_file is not None:
     RECOMMENDATIONS = {
         "Pothole": (
             "rec-error",
-            "⚠️ **Immediate Maintenance Required** — Pothole detected with "
-            f"{confidence:.1f}% confidence (Severity: {severity}).\n\n"
+            f"⚠️ <b>Immediate Maintenance Required</b> — Pothole detected with "
+            f"{confidence:.1f}% confidence (Severity: {severity}).<br><br>"
             "Potholes pose a direct risk to vehicle safety and require urgent patching. "
             "Report to municipal road authorities immediately."
         ),
         "Crack": (
             "rec-warning",
-            f"🔧 **Schedule Repair Soon** — Crack detected with {confidence:.1f}% confidence "
-            f"(Severity: {severity}).\n\n"
+            f"🔧 <b>Schedule Repair Soon</b> — Crack detected with {confidence:.1f}% confidence "
+            f"(Severity: {severity}).<br><br>"
             "Surface cracks can expand due to weather and traffic load. "
             "Seal or resurface the affected section within the next maintenance cycle."
         ),
         "Manhole": (
             "rec-success",
-            f"ℹ️ **Routine Monitoring Advised** — Manhole cover detected with "
-            f"{confidence:.1f}% confidence (Severity: {severity}).\n\n"
+            f"ℹ️ <b>Routine Monitoring Advised</b> — Manhole cover detected with "
+            f"{confidence:.1f}% confidence (Severity: {severity}).<br><br>"
             "No immediate road hazard. Verify cover integrity and ensure it is flush with the road surface."
         ),
     }
 
     box_cls, rec_text = RECOMMENDATIONS[predicted_class]
-    st.markdown(f"<div class='rec-box {box_cls}'>{rec_text}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='rec-box {box_cls}'>{rec_text}</div>",
+        unsafe_allow_html=True
+    )
 
 else:
-    # Placeholder when no image is uploaded
     st.markdown("""
     <div style='text-align:center; padding:60px; color:#2A3A4A;
                 border:2px dashed #1E2D3D; border-radius:16px; margin-top:24px;'>
