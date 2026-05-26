@@ -68,7 +68,7 @@ st.markdown("""
 MODEL_FILE = "road_damage_model.keras"
 
 # Google Drive File ID
-FILE_ID = "1BQyHa_0CfLKpsRvy259dDbqh8reL12kf"
+FILE_ID = "1-7VNyfOvCdA8pru2m4sO9LDXe3AuXGpu"
 
 # Download model if not exists
 if not os.path.exists(MODEL_FILE):
