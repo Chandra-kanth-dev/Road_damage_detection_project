@@ -65,7 +65,7 @@ st.markdown("""
 # MODEL DOWNLOAD
 # ============================================
 
-MODEL_FILE = "road_damage_model.keras"
+MODEL_FILE = "road_damage_model.h5"
 
 # Google Drive File ID
 FILE_ID = "1-7VNyfOvCdA8pru2m4sO9LDXe3AuXGpu"
