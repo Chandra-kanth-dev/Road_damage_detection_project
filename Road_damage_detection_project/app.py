@@ -67,16 +67,28 @@ st.markdown("""
 
 MODEL_FILE = "road_damage_model.keras"
 
-# Replace with your Google Drive File ID
+# Google Drive File ID
 FILE_ID = "1BQyHa_0CfLKpsRvy259dDbqh8reL12kf"
 
-URL = f"https://drive.google.com/uc?id={FILE_ID}"
-
+# Download model if not exists
 if not os.path.exists(MODEL_FILE):
 
     with st.spinner("Downloading CNN model..."):
 
-        gdown.download(URL, MODEL_FILE, quiet=False)
+        try:
+
+            gdown.download(
+                id=FILE_ID,
+                output=MODEL_FILE,
+                quiet=False
+            )
+
+            st.success("Model downloaded successfully!")
+
+        except Exception as e:
+
+            st.error(f"Error downloading model: {e}")
+            st.stop()
 
 # ============================================
 # LOAD MODEL
@@ -85,9 +97,19 @@ if not os.path.exists(MODEL_FILE):
 @st.cache_resource
 def load_cnn_model():
 
-    model = load_model(MODEL_FILE)
+    try:
 
-    return model
+        model = load_model(
+            MODEL_FILE,
+            compile=False
+        )
+
+        return model
+
+    except Exception as e:
+
+        st.error(f"Error loading model: {e}")
+        st.stop()
 
 model = load_cnn_model()
 
@@ -118,7 +140,7 @@ st.markdown(
 st.divider()
 
 # ============================================
-# SECTION 2 — ABOUT PROJECT
+# ABOUT PROJECT
 # ============================================
 
 st.markdown("## 📘 About the Project")
@@ -152,7 +174,7 @@ Convolutional Neural Networks (CNNs):
 st.divider()
 
 # ============================================
-# SECTION 3 — IMAGE UPLOAD
+# IMAGE UPLOAD
 # ============================================
 
 st.markdown("## 📤 Upload Road Image")
@@ -168,12 +190,12 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
 
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
 
     col1, col2 = st.columns(2)
 
     # ============================================
-    # SECTION 4 — IMAGE PREVIEW
+    # IMAGE PREVIEW
     # ============================================
 
     with col1:
@@ -193,7 +215,7 @@ if uploaded_file is not None:
 
     img = cv2.resize(img, (128, 128))
 
-    img = img / 255.0
+    img = img.astype("float32") / 255.0
 
     img = np.expand_dims(img, axis=0)
 
@@ -201,13 +223,15 @@ if uploaded_file is not None:
     # PREDICTION
     # ============================================
 
-    prediction = model.predict(img)
+    with st.spinner("Analyzing road damage..."):
+
+        prediction = model.predict(img)
 
     class_index = np.argmax(prediction)
 
     predicted_class = classes[class_index]
 
-    confidence = np.max(prediction) * 100
+    confidence = float(np.max(prediction) * 100)
 
     # ============================================
     # SEVERITY LEVEL
@@ -223,7 +247,7 @@ if uploaded_file is not None:
         severity = "Low"
 
     # ============================================
-    # SECTION 5 — PREDICTION AREA
+    # PREDICTION AREA
     # ============================================
 
     with col2:
@@ -245,7 +269,7 @@ if uploaded_file is not None:
     st.divider()
 
     # ============================================
-    # SECTION 6 — VISUALIZATION AREA
+    # VISUALIZATION AREA
     # ============================================
 
     st.markdown("## 📈 Prediction Visualization")
@@ -263,7 +287,7 @@ if uploaded_file is not None:
     st.pyplot(fig)
 
     # ============================================
-    # SECTION 7 — RECOMMENDATIONS
+    # RECOMMENDATIONS
     # ============================================
 
     st.markdown("## 🚨 Recommendations")
@@ -271,23 +295,23 @@ if uploaded_file is not None:
     if predicted_class == "Pothole":
 
         st.error("""
-        Immediate maintenance recommended.
+Immediate maintenance recommended.
 
-        High-risk road condition detected.
+High-risk road condition detected.
         """)
 
     elif predicted_class == "Crack":
 
         st.warning("""
-        Repair recommended soon.
+Repair recommended soon.
 
-        Road condition may worsen over time.
+Road condition may worsen over time.
         """)
 
     else:
 
         st.success("""
-        Low immediate risk detected.
+Low immediate risk detected.
 
-        Regular monitoring recommended.
+Regular monitoring recommended.
         """)
