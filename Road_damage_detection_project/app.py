@@ -1,20 +1,19 @@
 # ============================================
 # AI-BASED ROAD DAMAGE DETECTION SYSTEM
 # Python 3.10 | TensorFlow 2.15.0 | Streamlit
-# Fix: keras==2.15.0 version mismatch resolved
+# Fix: uses tf_keras to avoid Keras 3 conflict
 # ============================================
 
 import os
 import warnings
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"       # Suppress TF C++ logs
-os.environ["TF_USE_LEGACY_KERAS"]  = "1"        # Force tf.keras (Keras 2) on TF 2.15
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 warnings.filterwarnings("ignore")
 
 import streamlit as st
 
 # ============================================
-# PAGE CONFIG  (must be first Streamlit call)
+# PAGE CONFIG (must be FIRST Streamlit call)
 # ============================================
 
 st.set_page_config(
@@ -25,18 +24,27 @@ st.set_page_config(
 )
 
 # ============================================
-# TENSORFLOW — imported AFTER page config
-# Using tf.keras explicitly to avoid
-# standalone Keras 3.x conflict on cloud
+# IMPORTS
+# KEY FIX: import tf_keras instead of keras
+# tf_keras is the standalone Keras 2 package
+# that works with TF 2.15 on Streamlit Cloud
 # ============================================
 
-import tensorflow as tf
 import numpy as np
 import cv2
 import gdown
 import matplotlib.pyplot as plt
 
 from PIL import Image
+
+# Try tf_keras first (Streamlit Cloud), fall back to tf.keras (local)
+try:
+    import tf_keras as keras
+    print("✅ Using tf_keras (Keras 2 compatible)")
+except ImportError:
+    import tensorflow as tf
+    keras = tf.keras
+    print("✅ Using tf.keras")
 
 # ============================================
 # CUSTOM CSS
@@ -134,7 +142,6 @@ CLASS_COLORS = {
 # ============================================
 
 def download_model() -> bool:
-    """Downloads model from Google Drive if not present."""
     if os.path.exists(MODEL_FILE):
         return True
     with st.spinner("⬇️  Downloading CNN model (first run only)..."):
@@ -148,23 +155,20 @@ def download_model() -> bool:
 
 # ============================================
 # MODEL LOAD
-# KEY FIX: use tf.keras.models.load_model
-# NOT the standalone keras load_model
-# This guarantees Keras 2 (tf.keras) is used
-# regardless of what keras package is installed
+# Uses tf_keras.models.load_model which is
+# Keras 2 compatible — works on Streamlit Cloud
 # ============================================
 
 @st.cache_resource(show_spinner="Loading CNN model…")
 def load_cnn_model():
     try:
-        # Explicitly use tf.keras — avoids standalone Keras 3 conflict
-        model = tf.keras.models.load_model(MODEL_FILE, compile=False)
+        model = keras.models.load_model(MODEL_FILE, compile=False)
         return model
     except TypeError as te:
-        st.error("❌ Model config error (likely Keras version mismatch).")
+        st.error("❌ Model config error — likely a Keras version mismatch.")
         st.code(str(te))
         st.info(
-            "Fix: Re-save your model locally with the same TF version:\n"
+            "Re-save your model locally with the same TF version:\n"
             "  model.save('road_damage_model.h5')\n"
             "Then re-upload to Google Drive and update FILE_ID."
         )
@@ -178,7 +182,6 @@ def load_cnn_model():
 # ============================================
 
 def preprocess_image(pil_image: Image.Image) -> np.ndarray:
-    """PIL Image → normalised (1, 128, 128, 3) float32 array."""
     img = np.array(pil_image.convert("RGB"))
     img = cv2.resize(img, IMG_SIZE, interpolation=cv2.INTER_AREA)
     img = img.astype("float32") / 255.0
@@ -200,7 +203,6 @@ def get_severity(confidence: float) -> str:
 # ============================================
 
 def render_confidence_chart(probabilities: np.ndarray) -> plt.Figure:
-    """Styled horizontal bar chart for class probabilities."""
     fig, ax = plt.subplots(figsize=(7, 3))
     fig.patch.set_facecolor("#0F1923")
     ax.set_facecolor("#0F1923")
@@ -253,7 +255,7 @@ with st.expander("📘 About this System", expanded=False):
 st.divider()
 
 # ============================================
-# BOOTSTRAP: download → load model
+# BOOTSTRAP
 # ============================================
 
 if not download_model():
@@ -279,10 +281,8 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
 
     image = Image.open(uploaded_file)
-
     col1, col2 = st.columns([1, 1], gap="large")
 
-    # --- Left: Image Preview ---
     with col1:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.markdown("**🖼️ Uploaded Image**")
@@ -290,7 +290,6 @@ if uploaded_file is not None:
         st.caption(f"Size: {image.size[0]}×{image.size[1]} px  |  Mode: {image.mode}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- Right: Prediction ---
     with col2:
         img_array = preprocess_image(image)
 
@@ -324,9 +323,6 @@ if uploaded_file is not None:
 
     st.divider()
 
-    # ----------------------------------------
-    # CHART
-    # ----------------------------------------
     st.markdown("### 📈 Class Confidence Breakdown")
     fig = render_confidence_chart(probabilities)
     st.pyplot(fig)
@@ -334,9 +330,6 @@ if uploaded_file is not None:
 
     st.divider()
 
-    # ----------------------------------------
-    # RECOMMENDATIONS
-    # ----------------------------------------
     st.markdown("### 🚨 Recommended Action")
 
     RECOMMENDATIONS = {
@@ -351,7 +344,7 @@ if uploaded_file is not None:
             "rec-warning",
             f"🔧 <b>Schedule Repair Soon</b> — Crack detected with {confidence:.1f}% confidence "
             f"(Severity: {severity}).<br><br>"
-            "Surface cracks can expand due to weather and traffic load. "
+            "Surface cracks expand due to weather and traffic load. "
             "Seal or resurface the affected section within the next maintenance cycle."
         ),
         "Manhole": (
